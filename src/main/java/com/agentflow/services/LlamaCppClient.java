@@ -41,12 +41,23 @@ public class LlamaCppClient implements LlmClient {
         public String generate(String prompt) {
                 logger.info("Generating response for prompt: {}", prompt);
 
+                // Wrap with instruction format to guide the LLM
+                String formattedPrompt = "### Instruction\nRespond directly and concisely to the user's message. Do not simulate additional conversation turns.\n\n### User Message\n"
+                                + prompt + "\n\n### Response\n";
+
                 LlamaCompletionRequest request = new LlamaCompletionRequest(
-                                prompt,
+                                formattedPrompt,
                                 maxTokens,
-                                0.2, // low temperature for reasoning
-                                new String[] {} // stop tokens later
-                );
+                                0.2,
+                                new String[] {
+                                                "###", "\n###",
+                                                "User:", "\nUser:", "\n\nUser:",
+                                                "Assistant:", "\nAssistant:", "\n\nAssistant:",
+                                                "System:", "\nSystem:",
+                                                "Human:", "\nHuman:",
+                                                "User 1:", "User 2:",
+                                                "\n---", "---", "\n\n\n"
+                                });
 
                 String response = webClient.post()
                                 .uri("/completion")
@@ -58,7 +69,29 @@ public class LlamaCppClient implements LlmClient {
                                 .retryWhen(Retry.backoff(maxRetries, Duration.ofMillis(500)))
                                 .block();
 
+                response = cleanResponse(response);
                 logger.info("Generated response: {}", response);
+                return response;
+        }
+
+        /**
+         * Cleans the LLM response by removing any leaked role markers or artifacts.
+         */
+        private String cleanResponse(String response) {
+                if (response == null)
+                        return "";
+
+                response = response.trim();
+
+                // Remove common unwanted patterns that might leak through
+                String[] patterns = { "User:", "Assistant:", "System:", "Human:", "User 1:", "User 2:", "---", "###" };
+                for (String pattern : patterns) {
+                        int idx = response.indexOf(pattern);
+                        if (idx > 0) {
+                                response = response.substring(0, idx).trim();
+                        }
+                }
+
                 return response;
         }
 
