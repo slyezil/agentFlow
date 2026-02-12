@@ -4,7 +4,9 @@ import com.agentflow.dto.*;
 import com.agentflow.interfaces.LlmClient;
 import com.agentflow.memory.Conversation;
 import com.agentflow.memory.ConversationMemory;
+import com.agentflow.services.UserPreferenceService;
 import org.springframework.http.HttpStatus;
+
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -17,10 +19,12 @@ public class AgentController {
 
     private final LlmClient llmClient;
     private final ConversationMemory conversationMemory;
+    private final UserPreferenceService userPreferenceService;
 
-    public AgentController(LlmClient llmClient, ConversationMemory conversationMemory) {
+    public AgentController(LlmClient llmClient, ConversationMemory conversationMemory, UserPreferenceService userPreferenceService) {
         this.llmClient = llmClient;
         this.conversationMemory = conversationMemory;
+        this.userPreferenceService = userPreferenceService;
     }
 
     // ==================== Backward Compatible Endpoint ====================
@@ -64,6 +68,9 @@ public class AgentController {
     public ChatResponse chat(@PathVariable("id") String conversationId, @RequestBody ChatRequest request) {
         Conversation conversation = conversationMemory.getConversation(conversationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found"));
+
+        // Extract user preferences
+        userPreferenceService.extractPreferences(request.message());
 
         // Add user message to history
         Message userMessage = new Message("user", request.message());

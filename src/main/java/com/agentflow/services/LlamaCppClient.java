@@ -20,18 +20,21 @@ public class LlamaCppClient implements LlmClient {
         private static final Logger logger = LoggerFactory.getLogger(LlamaCppClient.class);
 
         private final WebClient webClient;
+        private final UserPreferenceService userPreferenceService;
         private final int maxTokens;
         private final long timeoutMs;
         private final int maxRetries;
 
         public LlamaCppClient(
-                        @Value("${llama.base-url:http://localhost:8080}") String baseUrl,
+                        @Value("${llama.base-url:http://localhost:8000}") String baseUrl,
                         @Value("${llama.max-tokens:256}") int maxTokens,
                         @Value("${llama.timeout-ms:30000}") long timeoutMs,
-                        @Value("${llama.max-retries:3}") int maxRetries) {
+                        @Value("${llama.max-retries:3}") int maxRetries,
+                        UserPreferenceService userPreferenceService) {
                 this.webClient = WebClient.builder()
                                 .baseUrl(baseUrl)
                                 .build();
+                this.userPreferenceService = userPreferenceService;
                 this.maxTokens = maxTokens;
                 this.timeoutMs = timeoutMs;
                 this.maxRetries = maxRetries;
@@ -109,9 +112,23 @@ public class LlamaCppClient implements LlmClient {
         private String formatConversation(String systemPrompt, List<Message> history) {
                 StringBuilder sb = new StringBuilder();
 
-                // Add system prompt if present
+                // Add system prompt and user preferences if present
+                String preferencesPrompt = userPreferenceService.getPreferencesPrompt();
+                StringBuilder fullSystemPrompt = new StringBuilder();
+                
                 if (systemPrompt != null && !systemPrompt.isBlank()) {
-                        sb.append("System: ").append(systemPrompt).append("\n\n");
+                        fullSystemPrompt.append(systemPrompt);
+                }
+                
+                if (!preferencesPrompt.isEmpty()) {
+                        if (fullSystemPrompt.length() > 0) {
+                                fullSystemPrompt.append("\n\n");
+                        }
+                        fullSystemPrompt.append(preferencesPrompt);
+                }
+
+                if (fullSystemPrompt.length() > 0) {
+                        sb.append("System: ").append(fullSystemPrompt.toString()).append("\n\n");
                 }
 
                 // Add conversation history
