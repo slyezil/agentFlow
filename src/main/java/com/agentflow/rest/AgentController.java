@@ -4,6 +4,7 @@ import com.agentflow.dto.*;
 import com.agentflow.interfaces.LlmClient;
 import com.agentflow.memory.Conversation;
 import com.agentflow.memory.ConversationMemory;
+import com.agentflow.memory.SummarizingMemory;
 import com.agentflow.services.UserPreferenceService;
 import org.springframework.http.HttpStatus;
 
@@ -20,11 +21,14 @@ public class AgentController {
     private final LlmClient llmClient;
     private final ConversationMemory conversationMemory;
     private final UserPreferenceService userPreferenceService;
+    private final SummarizingMemory summarizingMemory;
 
-    public AgentController(LlmClient llmClient, ConversationMemory conversationMemory, UserPreferenceService userPreferenceService) {
+    public AgentController(LlmClient llmClient, ConversationMemory conversationMemory,
+                           UserPreferenceService userPreferenceService, SummarizingMemory summarizingMemory) {
         this.llmClient = llmClient;
         this.conversationMemory = conversationMemory;
         this.userPreferenceService = userPreferenceService;
+        this.summarizingMemory = summarizingMemory;
     }
 
     // ==================== Backward Compatible Endpoint ====================
@@ -76,9 +80,10 @@ public class AgentController {
         Message userMessage = new Message("user", request.message());
         conversationMemory.addMessage(conversationId, userMessage);
 
-        // Generate response with full context
+        // Process history (trim or summarize) to fit context window
         List<Message> history = conversationMemory.getHistory(conversationId);
-        String response = llmClient.generate(conversation.getSystemPrompt(), history);
+        List<Message> processedHistory = summarizingMemory.process(history);
+        String response = llmClient.generate(conversation.getSystemPrompt(), processedHistory);
 
         // Add assistant response to history
         Message assistantMessage = new Message("assistant", response);

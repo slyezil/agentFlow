@@ -3,8 +3,6 @@ package com.agentflow.memory;
 import com.agentflow.dto.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -12,7 +10,11 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-@Component
+/**
+ * Volatile in-memory implementation of ConversationMemory.
+ * Fast but conversations are lost on server restart.
+ * Managed by MemoryConfig based on 'memory.type' property.
+ */
 public class InMemoryConversationMemory implements ConversationMemory {
 
     private static final Logger logger = LoggerFactory.getLogger(InMemoryConversationMemory.class);
