@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  # AgentFlow Java Application
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - LLAMA_BASE_URL=http://llm:8081
+      - MEMORY_TYPE=file
+      - MEMORY_DATA_DIR=/app/data
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - llm
+
+  # llama.cpp server
+  llm:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./models:/models
+    environment:
+      - LLAMA_ARG_MODEL=/models/model.gguf
+      - LLAMA_ARG_PORT=8081
+      - LLAMA_ARG_HOST=0.0.0.0
+    # Note: You need to place your .gguf model in the ./models folder as 'model.gguf'
+    # or update the environment variable LLAMA_ARG_MODEL
+    command: -m /models/model.gguf --port 8081 --host 0.0.0.0
