@@ -2,7 +2,9 @@ package com.agentflow.services;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -11,9 +13,12 @@ class UserPreferenceServiceTest {
 
     private UserPreferenceService userPreferenceService;
 
+    @TempDir
+    Path tempDir;
+
     @BeforeEach
     void setUp() {
-        userPreferenceService = new UserPreferenceService();
+        userPreferenceService = new UserPreferenceService(tempDir.toString());
     }
 
     @Test

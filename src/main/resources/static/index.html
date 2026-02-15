@@ -245,6 +245,44 @@
             color: var(--text-dim);
             opacity: 0.6;
         }
+
+        .typing-cursor::after {
+            content: '▋';
+            animation: blink 0.7s infinite;
+            color: var(--accent);
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0;
+            }
+        }
+
+        .streaming-indicator {
+            display: inline-block;
+            font-size: 0.75rem;
+            color: var(--accent);
+            margin-left: 0.5rem;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 0.4;
+            }
+
+            50% {
+                opacity: 1;
+            }
+        }
     </style>
 </head>
 
@@ -314,14 +352,81 @@
             div.className = `message ${role === 'user' ? 'user-msg' : 'bot-msg'}`;
             div.textContent = text;
             container.appendChild(div);
+            scrollToBottom(container);
+            return div;
+        }
 
-            // Smoother scroll to bottom
+        function scrollToBottom(container) {
             setTimeout(() => {
                 container.scrollTo({
                     top: container.scrollHeight,
                     behavior: 'smooth'
                 });
             }, 50);
+        }
+
+        async function streamStatefulResponse(prompt) {
+            // Create a bot message element to stream into
+            const botDiv = appendMessage(statefulChat, 'bot', '');
+            botDiv.classList.add('typing-cursor');
+
+            try {
+                const res = await fetch(`/api/conversations/${conversationId}/chat/stream`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: prompt })
+                });
+
+                if (!res.ok) {
+                    botDiv.textContent = `Error: ${res.statusText}`;
+                    botDiv.classList.remove('typing-cursor');
+                    return;
+                }
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let fullText = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+
+                    // Parse SSE data lines
+                    const lines = chunk.split('\n');
+                    for (const line of lines) {
+                        if (line.startsWith('data:')) {
+                            const data = line.slice(5).trim();
+                            if (data && data !== '[DONE]') {
+                                // The data is a JSON-encoded string token
+                                try {
+                                    const token = JSON.parse(data);
+                                    fullText += token;
+                                    botDiv.textContent = fullText;
+                                    scrollToBottom(statefulChat);
+                                } catch {
+                                    // Sometimes the data is a raw string, not JSON
+                                    fullText += data;
+                                    botDiv.textContent = fullText;
+                                    scrollToBottom(statefulChat);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Remove cursor after streaming completes
+                botDiv.classList.remove('typing-cursor');
+
+                if (!fullText.trim()) {
+                    botDiv.textContent = 'No response returned.';
+                }
+
+            } catch (e) {
+                botDiv.textContent = 'Error: ' + e.message;
+                botDiv.classList.remove('typing-cursor');
+            }
         }
 
         async function send() {
@@ -334,25 +439,23 @@
             appendMessage(statelessChat, 'user', prompt);
             appendMessage(statefulChat, 'user', prompt);
 
-            // Fetch responses in parallel
+            // Stateless: blocking fetch (unchanged)
             const statelessPromise = fetch('/api/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt: prompt })
             }).then(r => r.json()).catch(e => ({ response: "Error: " + e.message }));
 
-            const statefulPromise = fetch(`/api/conversations/${conversationId}/chat`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: prompt })
-            }).then(r => r.json()).catch(e => ({ response: "Error: " + e.message }));
+            // Stateful: SSE streaming
+            const statefulPromise = streamStatefulResponse(prompt);
 
-            const [data1, data2] = await Promise.all([statelessPromise, statefulPromise]);
+            // Wait for both
+            const [data1] = await Promise.all([statelessPromise, statefulPromise]);
 
             appendMessage(statelessChat, 'bot', data1.response || 'No response returned.');
-            appendMessage(statefulChat, 'bot', data2.response || 'No response returned.');
 
             sendBtn.disabled = false;
+            promptInput.focus();
         }
 
         sendBtn.addEventListener('click', send);

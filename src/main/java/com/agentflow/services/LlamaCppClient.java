@@ -5,8 +5,11 @@ import com.agentflow.interfaces.LlmClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
@@ -44,7 +47,6 @@ public class LlamaCppClient implements LlmClient {
 		logger.info("Generating response for single prompt (stateless)");
 		List<Message> messages = new ArrayList<>();
 		
-		// Add preferences even in stateless mode if they exist
 		String preferencesPrompt = userPreferenceService.getPreferencesPrompt();
 		if (!preferencesPrompt.isEmpty()) {
 			messages.add(new Message("system", preferencesPrompt));
@@ -57,17 +59,27 @@ public class LlamaCppClient implements LlmClient {
 	@Override
 	public String generate(String systemPrompt, List<Message> history) {
 		logger.info("Generating response with conversation history ({} messages)", history.size());
+		List<Message> messages = buildMessages(systemPrompt, history);
+		return executeRequest(messages);
+	}
 
+	@Override
+	public Flux<String> generateStream(String systemPrompt, List<Message> history) {
+		logger.info("Streaming response with conversation history ({} messages)", history.size());
+		List<Message> messages = buildMessages(systemPrompt, history);
+		return executeStreamRequest(messages);
+	}
+
+	private List<Message> buildMessages(String systemPrompt, List<Message> history) {
 		List<Message> messages = new ArrayList<>();
-		
-		// Combine system prompt and user preferences
+
 		String preferencesPrompt = userPreferenceService.getPreferencesPrompt();
 		StringBuilder fullSystemPrompt = new StringBuilder();
-		
+
 		if (systemPrompt != null && !systemPrompt.isBlank()) {
 			fullSystemPrompt.append(systemPrompt);
 		}
-		
+
 		if (!preferencesPrompt.isEmpty()) {
 			if (fullSystemPrompt.length() > 0) {
 				fullSystemPrompt.append("\n\n");
@@ -78,13 +90,15 @@ public class LlamaCppClient implements LlmClient {
 		if (fullSystemPrompt.length() > 0) {
 			messages.add(new Message("system", fullSystemPrompt.toString()));
 		}
-		
-		messages.addAll(history);
 
-		return executeRequest(messages);
+		messages.addAll(history);
+		return messages;
 	}
 
 	private String executeRequest(List<Message> messages) {
+		logger.info("Sending {} messages to LLM (timeout={}ms, max-tokens={})", 
+				messages.size(), timeoutMs, maxTokens);
+
 		OpenAiChatRequest request = new OpenAiChatRequest(
 				"default", 
 				messages,
@@ -98,8 +112,11 @@ public class LlamaCppClient implements LlmClient {
 				.bodyValue(request)
 				.retrieve()
 				.bodyToMono(OpenAiChatResponse.class)
+				.retryWhen(Retry.backoff(maxRetries, Duration.ofMillis(500))
+						.filter(ex -> !(ex instanceof java.util.concurrent.TimeoutException))
+						.doBeforeRetry(signal -> logger.warn("Retrying LLM request (attempt {}): {}",
+								signal.totalRetries() + 1, signal.failure().getMessage())))
 				.timeout(Duration.ofMillis(timeoutMs))
-				.retryWhen(Retry.backoff(maxRetries, Duration.ofMillis(500)))
 				.block();
 
 		if (response != null && !response.choices().isEmpty()) {
@@ -113,5 +130,37 @@ public class LlamaCppClient implements LlmClient {
 
 		logger.warn("Received empty or null response from LLM server");
 		return "";
+	}
+
+	private Flux<String> executeStreamRequest(List<Message> messages) {
+		logger.info("Streaming {} messages to LLM (timeout={}ms, max-tokens={})",
+				messages.size(), timeoutMs, maxTokens);
+
+		OpenAiChatRequest request = new OpenAiChatRequest(
+				"default",
+				messages,
+				0.2,
+				maxTokens,
+				List.of("###", "\nUser:", "\nAssistant:"),
+				true); // stream = true
+
+		return webClient.post()
+				.uri("/v1/chat/completions")
+				.bodyValue(request)
+				.retrieve()
+				.bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<OpenAiStreamChunk>>() {})
+				.timeout(Duration.ofMillis(timeoutMs))
+				.mapNotNull(sse -> {
+					OpenAiStreamChunk chunk = sse.data();
+					if (chunk != null && chunk.choices() != null && !chunk.choices().isEmpty()) {
+						OpenAiStreamChunk.Delta delta = chunk.choices().get(0).delta();
+						if (delta != null && delta.content() != null) {
+							return delta.content();
+						}
+					}
+					return null;
+				})
+				.doOnComplete(() -> logger.info("Stream completed"))
+				.doOnError(e -> logger.error("Stream error: {}", e.getMessage()));
 	}
 }

@@ -7,9 +7,11 @@ import com.agentflow.memory.ConversationMemory;
 import com.agentflow.memory.SummarizingMemory;
 import com.agentflow.services.UserPreferenceService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 import java.util.Map;
@@ -92,6 +94,39 @@ public class AgentController {
         // Return updated history
         List<Message> updatedHistory = conversationMemory.getHistory(conversationId);
         return new ChatResponse(conversationId, response, updatedHistory);
+    }
+
+    // ==================== Streaming Chat Endpoint ====================
+
+    @PostMapping(value = "/conversations/{id}/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<String> chatStream(@PathVariable("id") String conversationId, @RequestBody ChatRequest request) {
+        Conversation conversation = conversationMemory.getConversation(conversationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found"));
+
+        // Extract user preferences
+        userPreferenceService.extractPreferences(request.message());
+
+        // Add user message to history
+        Message userMessage = new Message("user", request.message());
+        conversationMemory.addMessage(conversationId, userMessage);
+
+        // Process history to fit context window
+        List<Message> history = conversationMemory.getHistory(conversationId);
+        List<Message> processedHistory = summarizingMemory.process(history);
+
+        // Accumulate the full response for saving to memory
+        StringBuilder fullResponse = new StringBuilder();
+
+        return llmClient.generateStream(conversation.getSystemPrompt(), processedHistory)
+                .doOnNext(fullResponse::append)
+                .doOnComplete(() -> {
+                    // Save the complete response to conversation memory
+                    String completeResponse = fullResponse.toString().trim();
+                    if (!completeResponse.isEmpty()) {
+                        conversationMemory.addMessage(conversationId,
+                                new Message("assistant", completeResponse));
+                    }
+                });
     }
 
     @DeleteMapping("/conversations/{id}")
