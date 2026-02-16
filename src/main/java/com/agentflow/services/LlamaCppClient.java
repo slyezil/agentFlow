@@ -27,11 +27,16 @@ public class LlamaCppClient implements LlmClient {
 	private final long timeoutMs;
 	private final int maxRetries;
 
+	private final double temperature;
+	private final List<String> stopSequences;
+
 	public LlamaCppClient(
 			@Value("${llama.base-url:http://localhost:8080}") String baseUrl,
 			@Value("${llama.max-tokens:256}") int maxTokens,
 			@Value("${llama.timeout-ms:30000}") long timeoutMs,
 			@Value("${llama.max-retries:3}") int maxRetries,
+			@Value("${llama.temperature:0.7}") double temperature,
+			@Value("${llama.stop-sequences:###,\\nUser:,\\nAssistant:}") List<String> stopSequences,
 			UserPreferenceService userPreferenceService) {
 		this.webClient = WebClient.builder()
 				.baseUrl(baseUrl)
@@ -40,6 +45,8 @@ public class LlamaCppClient implements LlmClient {
 		this.maxTokens = maxTokens;
 		this.timeoutMs = timeoutMs;
 		this.maxRetries = maxRetries;
+		this.temperature = temperature;
+		this.stopSequences = stopSequences;
 	}
 
 	@Override
@@ -53,6 +60,13 @@ public class LlamaCppClient implements LlmClient {
 		}
 		
 		messages.add(new Message("user", prompt));
+		return executeRequest(messages);
+	}
+
+	@Override
+	public String generateRaw(String prompt) {
+		logger.info("Generating raw response (no preferences)");
+		List<Message> messages = List.of(new Message("user", prompt));
 		return executeRequest(messages);
 	}
 
@@ -102,9 +116,9 @@ public class LlamaCppClient implements LlmClient {
 		OpenAiChatRequest request = new OpenAiChatRequest(
 				"default", 
 				messages,
-				0.2,
+				temperature,
 				maxTokens,
-				List.of("###", "\nUser:", "\nAssistant:"),
+				stopSequences,
 				false);
 
 		OpenAiChatResponse response = webClient.post()
@@ -139,9 +153,9 @@ public class LlamaCppClient implements LlmClient {
 		OpenAiChatRequest request = new OpenAiChatRequest(
 				"default",
 				messages,
-				0.2,
+				temperature,
 				maxTokens,
-				List.of("###", "\nUser:", "\nAssistant:"),
+				stopSequences,
 				true); // stream = true
 
 		return webClient.post()

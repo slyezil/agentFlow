@@ -4,7 +4,7 @@ import com.agentflow.dto.*;
 import com.agentflow.interfaces.LlmClient;
 import com.agentflow.memory.Conversation;
 import com.agentflow.memory.ConversationMemory;
-import com.agentflow.memory.SummarizingMemory;
+import com.agentflow.services.ChatService;
 import com.agentflow.services.UserPreferenceService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -23,14 +23,16 @@ public class AgentController {
     private final LlmClient llmClient;
     private final ConversationMemory conversationMemory;
     private final UserPreferenceService userPreferenceService;
-    private final SummarizingMemory summarizingMemory;
+    private final ChatService chatService;
 
-    public AgentController(LlmClient llmClient, ConversationMemory conversationMemory,
-                           UserPreferenceService userPreferenceService, SummarizingMemory summarizingMemory) {
+    public AgentController(LlmClient llmClient,
+                           ConversationMemory conversationMemory,
+                           UserPreferenceService userPreferenceService,
+                           ChatService chatService) {
         this.llmClient = llmClient;
         this.conversationMemory = conversationMemory;
         this.userPreferenceService = userPreferenceService;
-        this.summarizingMemory = summarizingMemory;
+        this.chatService = chatService;
     }
 
     // ==================== Backward Compatible Endpoint ====================
@@ -72,66 +74,32 @@ public class AgentController {
 
     @PostMapping("/conversations/{id}/chat")
     public ChatResponse chat(@PathVariable("id") String conversationId, @RequestBody ChatRequest request) {
-        Conversation conversation = conversationMemory.getConversation(conversationId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found"));
-
-        // Extract user preferences
-        userPreferenceService.extractPreferences(request.message());
-
-        // Add user message to history
-        Message userMessage = new Message("user", request.message());
-        conversationMemory.addMessage(conversationId, userMessage);
-
-        // Process history (trim or summarize) to fit context window
-        List<Message> history = conversationMemory.getHistory(conversationId);
-        List<Message> processedHistory = summarizingMemory.process(history);
-        String response = llmClient.generate(conversation.getSystemPrompt(), processedHistory);
-
-        // Add assistant response to history
-        Message assistantMessage = new Message("assistant", response);
-        conversationMemory.addMessage(conversationId, assistantMessage);
-
-        // Return updated history
-        List<Message> updatedHistory = conversationMemory.getHistory(conversationId);
-        return new ChatResponse(conversationId, response, updatedHistory);
+        return chatService.chat(conversationId, request.message());
     }
 
     // ==================== Streaming Chat Endpoint ====================
 
     @PostMapping(value = "/conversations/{id}/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> chatStream(@PathVariable("id") String conversationId, @RequestBody ChatRequest request) {
-        Conversation conversation = conversationMemory.getConversation(conversationId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found"));
-
-        // Extract user preferences
-        userPreferenceService.extractPreferences(request.message());
-
-        // Add user message to history
-        Message userMessage = new Message("user", request.message());
-        conversationMemory.addMessage(conversationId, userMessage);
-
-        // Process history to fit context window
-        List<Message> history = conversationMemory.getHistory(conversationId);
-        List<Message> processedHistory = summarizingMemory.process(history);
-
-        // Accumulate the full response for saving to memory
-        StringBuilder fullResponse = new StringBuilder();
-
-        return llmClient.generateStream(conversation.getSystemPrompt(), processedHistory)
-                .doOnNext(fullResponse::append)
-                .doOnComplete(() -> {
-                    // Save the complete response to conversation memory
-                    String completeResponse = fullResponse.toString().trim();
-                    if (!completeResponse.isEmpty()) {
-                        conversationMemory.addMessage(conversationId,
-                                new Message("assistant", completeResponse));
-                    }
-                });
+        return chatService.chatStream(conversationId, request.message());
     }
 
     @DeleteMapping("/conversations/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteConversation(@PathVariable("id") String conversationId) {
         conversationMemory.deleteConversation(conversationId);
+    }
+
+    // ==================== Health Check ====================
+
+    @GetMapping("/health")
+    public Map<String, String> health() {
+        try {
+            // fast connectivity check
+            llmClient.generateRaw("ping"); 
+            return Map.of("status", "UP", "llm", "CONNECTED");
+        } catch (Exception e) {
+            return Map.of("status", "DOWN", "llm", "DISCONNECTED", "error", e.getMessage());
+        }
     }
 }

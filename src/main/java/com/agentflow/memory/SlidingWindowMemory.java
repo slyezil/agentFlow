@@ -13,7 +13,6 @@ import java.util.List;
  * Utility that trims conversation history to fit within a configurable
  * sliding window. This prevents exceeding the LLM's context window.
  */
-@Component
 public class SlidingWindowMemory {
 
     private static final Logger logger = LoggerFactory.getLogger(SlidingWindowMemory.class);

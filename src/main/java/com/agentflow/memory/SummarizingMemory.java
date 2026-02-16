@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
  * context window limits.
  */
 @Component
-public class SummarizingMemory {
+public class SummarizingMemory implements MemoryProcessor {
 
     private static final Logger logger = LoggerFactory.getLogger(SummarizingMemory.class);
 
@@ -79,7 +79,7 @@ public class SummarizingMemory {
                               + ": " + m.content())
                     .collect(Collectors.joining("\n"));
 
-            String summary = llmClient.generate(SUMMARIZE_PROMPT + conversationText);
+            String summary = llmClient.generateRaw(SUMMARIZE_PROMPT + conversationText);
 
             if (summary != null && !summary.isBlank()) {
                 logger.info("Generated conversation summary ({} chars) from {} older messages",

@@ -283,13 +283,21 @@
                 opacity: 1;
             }
         }
+
+        .error-text {
+            color: #ef4444;
+            font-style: italic;
+        }
     </style>
 </head>
 
 <body>
     <header>
         <div class="logo">AGENT<span>FLOW</span> MEMORY LAB</div>
-        <div class="status" id="apiUrl">CONNECTED TO LOCALHOST:8080</div>
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <div class="status" id="apiUrl">CONNECTED TO LOCALHOST:8080</div>
+            <button id="newChatBtn" style="padding: 0.5rem 1rem; font-size: 0.75rem;">New Chat</button>
+        </div>
     </header>
 
     <div class="container">
@@ -331,6 +339,7 @@
         const statefulChat = document.getElementById('statefulChat');
         const promptInput = document.getElementById('promptInput');
         const sendBtn = document.getElementById('sendBtn');
+        const newChatBtn = document.getElementById('newChatBtn');
         let conversationId = null;
 
         async function init() {
@@ -344,8 +353,17 @@
                 console.log('Session initialized:', conversationId);
             } catch (e) {
                 console.error('Core init failed:', e);
+                appendMessage(statefulChat, 'bot', 'Error initializing session: ' + e.message).classList.add('error-text');
             }
         }
+
+        async function resetChat() {
+            statelessChat.innerHTML = '<div class="message bot-msg">System: Connection established. I am ready to assist you. What would you like to discuss?</div>';
+            statefulChat.innerHTML = '<div class="message bot-msg">System: Connection established. I am ready to assist you. What would you like to discuss?</div>';
+            await init();
+        }
+
+        newChatBtn.addEventListener('click', resetChat);
 
         function appendMessage(container, role, text) {
             const div = document.createElement('div');
@@ -380,6 +398,7 @@
                 if (!res.ok) {
                     botDiv.textContent = `Error: ${res.statusText}`;
                     botDiv.classList.remove('typing-cursor');
+                    botDiv.classList.add('error-text');
                     return;
                 }
 
@@ -426,6 +445,7 @@
             } catch (e) {
                 botDiv.textContent = 'Error: ' + e.message;
                 botDiv.classList.remove('typing-cursor');
+                botDiv.classList.add('error-text');
             }
         }
 

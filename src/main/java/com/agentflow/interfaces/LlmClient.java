@@ -9,19 +9,18 @@ public interface LlmClient {
 
     /**
      * Generate a response using the full conversation history.
-     *
-     * @param systemPrompt The system prompt (can be null)
-     * @param history      The conversation history
-     * @return The LLM's response
+     * User preferences are automatically injected.
      */
     String generate(String systemPrompt, List<Message> history);
 
     /**
+     * Raw generate without injecting user preferences.
+     * Used for internal operations (e.g. summarization).
+     */
+    String generateRaw(String prompt);
+
+    /**
      * Stream a response token-by-token using SSE.
-     *
-     * @param systemPrompt The system prompt (can be null)
-     * @param history      The conversation history
-     * @return A Flux emitting content tokens as they arrive
      */
     Flux<String> generateStream(String systemPrompt, List<Message> history);
 }

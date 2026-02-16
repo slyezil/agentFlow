@@ -7,9 +7,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - LLAMA_BASE_URL=http://llm:8081
-      - MEMORY_TYPE=file
-      - MEMORY_DATA_DIR=/app/data
+      - SPRING_APPLICATION_JSON={"llama.base-url":"http://llm:8081","memory.type":"file","memory.data-dir":"/app/data"}
     volumes:
       - ./data:/app/data
     depends_on:

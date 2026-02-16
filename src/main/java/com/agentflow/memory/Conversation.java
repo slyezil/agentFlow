@@ -6,18 +6,19 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class Conversation {
     private final String id;
     private final String systemPrompt;
     private final List<Message> messages;
     private final Instant createdAt;
-    private Instant updatedAt;
+    private volatile Instant updatedAt;
 
     public Conversation(String id, String systemPrompt) {
         this.id = id;
         this.systemPrompt = systemPrompt;
-        this.messages = new ArrayList<>();
+        this.messages = new CopyOnWriteArrayList<>();
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
     }
@@ -31,10 +32,10 @@ public class Conversation {
     }
 
     public List<Message> getMessages() {
-        return Collections.unmodifiableList(messages);
+        return Collections.unmodifiableList(new ArrayList<>(messages));
     }
 
-    public void addMessage(Message message) {
+    public synchronized void addMessage(Message message) {
         messages.add(message);
         updatedAt = Instant.now();
     }
@@ -47,7 +48,7 @@ public class Conversation {
         return updatedAt;
     }
 
-    public void clear() {
+    public synchronized void clear() {
         messages.clear();
         updatedAt = Instant.now();
     }
